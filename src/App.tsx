@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { DecisionProvider } from './contexts/DecisionContext';
 import { ToastProvider } from './components/ui/Toast';
