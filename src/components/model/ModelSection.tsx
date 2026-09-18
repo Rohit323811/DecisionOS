@@ -1,4 +1,3 @@
-import React from 'react';
 import { PlusIcon } from 'lucide-react';
 import { ItemKind, KIND_DESCRIPTION, KIND_LABEL, ModelItem } from '../../types/decision';
 import { KIND_META } from '../../utils/kindMeta';

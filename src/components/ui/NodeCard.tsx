@@ -1,4 +1,3 @@
-import React from 'react';
 import { ArrowRightIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ModelItem } from '../../types/decision';

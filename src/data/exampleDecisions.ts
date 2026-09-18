@@ -1,454 +1,344 @@
-import { DecisionModel } from '../types/decision';
+import { DecisionModel, ModelEdge, Scenario } from '../types/decision';
+
+export const contractorEdges: ModelEdge[] = [
+  {
+    id: 'e1',
+    from: 'v1',
+    to: 'v2',
+    relationshipType: 'inverse',
+    explanation: 'Higher weekly hours available allows managing larger course loads with lower strain.',
+    origin: 'inferred',
+    confidence: 'high'
+  },
+  {
+    id: 'e2',
+    from: 'v2',
+    to: 'g2',
+    relationshipType: 'direct',
+    explanation: 'Course load directly determines credit progress toward graduating on schedule.',
+    origin: 'inferred',
+    confidence: 'high'
+  },
+  {
+    id: 'e3',
+    from: 'v1',
+    to: 'v3',
+    relationshipType: 'direct',
+    explanation: 'Available time sets the upper bound on contractor workload capacity.',
+    origin: 'inferred',
+    confidence: 'high'
+  },
+  {
+    id: 'e4',
+    from: 'v3',
+    to: 'v5',
+    relationshipType: 'drives',
+    explanation: 'Active client count directly drives monthly contracting revenue and effective rate.',
+    origin: 'inferred',
+    confidence: 'medium'
+  },
+  {
+    id: 'e5',
+    from: 'v5',
+    to: 'g1',
+    relationshipType: 'drives',
+    explanation: 'Effective hourly rate and total revenue determine sustainable contracting income.',
+    origin: 'user',
+    confidence: 'high'
+  },
+  {
+    id: 'e6',
+    from: 'c1',
+    to: 'v1',
+    relationshipType: 'constrains',
+    explanation: 'Fixed college attendance requirements reduce total weekly flexible hours.',
+    origin: 'inferred',
+    confidence: 'high'
+  },
+  {
+    id: 'e7',
+    from: 'u1',
+    to: 'v1',
+    relationshipType: 'inverse',
+    explanation: 'Context switching hours lost directly deplete available time.',
+    origin: 'unknown',
+    confidence: 'medium'
+  },
+  {
+    id: 'e8',
+    from: 'v4',
+    to: 'g3',
+    relationshipType: 'direct',
+    explanation: 'Sufficient recovery time prevents burnout and maintains personal health.',
+    origin: 'inferred',
+    confidence: 'medium'
+  }
+];
+
+export const contractorScenarios: Scenario[] = [
+  {
+    id: 'sc-1',
+    title: 'Current Situation',
+    description: '15 credits coursework with 3 active client engagements (38 hrs/wk).',
+    isCurrent: true,
+    variableValues: {
+      v1: 38,
+      v2: 15,
+      v3: 3,
+      v4: 6,
+      v5: 62
+    }
+  },
+  {
+    id: 'sc-2',
+    title: 'Prioritize College',
+    description: 'Reduce active clients to 1, protecting GPA and graduation timeline.',
+    variableValues: {
+      v1: 25,
+      v2: 15,
+      v3: 1,
+      v4: 16,
+      v5: 75
+    }
+  },
+  {
+    id: 'sc-3',
+    title: 'Prioritize Contracting',
+    description: 'Reduce course load to 9 credits, expanding client capacity to 5.',
+    variableValues: {
+      v1: 52,
+      v2: 9,
+      v3: 5,
+      v4: 4,
+      v5: 85
+    }
+  },
+  {
+    id: 'sc-4',
+    title: 'Balanced Workload',
+    description: '12 credits with 2 retainer clients, keeping recovery time at 12 hrs/wk.',
+    variableValues: {
+      v1: 34,
+      v2: 12,
+      v3: 2,
+      v4: 12,
+      v5: 70
+    }
+  }
+];
 
 export const contractorDecision: DecisionModel = {
   id: 'contractor',
   title: 'Contracting while finishing college',
   prompt:
-  'I want to become a contractor, but because of college I can’t properly handle my contractor tasks.',
+    'I want to become a contractor, but because of college I can’t properly handle my contractor tasks.',
   summary:
-  'A capacity conflict between two commitments that both consume the same finite resource: your weekly hours. The model treats college load as fixed in the short term and contract scope as the adjustable surface.',
+    'A capacity conflict between two commitments drawing from weekly available time. College workload affects available time, which controls contractor workload capacity, project delivery, and long-term career progress.',
+  edges: contractorEdges,
+  scenarios: contractorScenarios,
   items: [
-  {
-    id: 'g1',
-    kind: 'goal',
-    label: 'Build sustainable contracting income',
-    detail:
-    'Reach a revenue level that survives after graduation without depending on a single client.',
-    origin: 'user',
-    facts: [
-    { label: 'horizon', value: '18 months' },
-    { label: 'priority', value: 'primary' }],
-
-    affects: ['o1', 'o2', 'v1']
-  },
-  {
-    id: 'g2',
-    kind: 'goal',
-    label: 'Finish the degree on schedule',
-    detail: 'No dropped semesters, no academic probation, graduate with the current cohort.',
-    origin: 'user',
-    facts: [{ label: 'deadline', value: 'fixed' }],
-    affects: ['c1', 'v2']
-  },
-  {
-    id: 'g3',
-    kind: 'goal',
-    label: 'Avoid burnout',
-    detail:
-    'Inferred from “can’t properly handle” — the phrasing describes overload, not lack of skill.',
-    origin: 'inferred',
-    confidence: 'medium',
-    facts: [{ label: 'signal', value: 'overload language' }],
-    affects: ['v1', 'v4']
-  },
-  {
-    id: 'o1',
-    kind: 'option',
-    label: 'Reduce contract scope',
-    detail:
-    'Keep contracting but cut to a single retainer client with a narrow, repeatable deliverable.',
-    origin: 'inferred',
-    polarity: 'positive',
-    facts: [
-    { label: 'income', value: '−35%' },
-    { label: 'load', value: '−55%' }],
-
-    affects: ['v1', 'v3']
-  },
-  {
-    id: 'o2',
-    kind: 'option',
-    label: 'Subcontract execution',
-    detail: 'Stay client-facing, delegate delivery work, absorb the margin loss.',
-    origin: 'inferred',
-    polarity: 'warning',
-    facts: [
-    { label: 'margin', value: '−40%' },
-    { label: 'risk', value: 'quality' }],
-
-    affects: ['v3', 'u2']
-  },
-  {
-    id: 'o3',
-    kind: 'option',
-    label: 'Reduce course load',
-    detail: 'Drop to part-time enrolment, extend graduation by one or two semesters.',
-    origin: 'inferred',
-    polarity: 'negative',
-    facts: [
-    { label: 'graduation', value: '+2 sem' },
-    { label: 'aid', value: 'at risk' }],
-
-    affects: ['g2', 'c2', 'v2']
-  },
-  {
-    id: 'o4',
-    kind: 'option',
-    label: 'Pause contracting for two terms',
-    detail: 'Fully defer client work until the heaviest coursework is behind you.',
-    origin: 'inferred',
-    polarity: 'neutral',
-    facts: [{ label: 'income', value: '→ 0' }],
-    affects: ['g1', 'v3']
-  },
-  {
-    id: 'v1',
-    kind: 'variable',
-    label: 'Weekly hours available',
-    detail: 'The shared resource both commitments draw from. Everything downstream scales here.',
-    origin: 'inferred',
-    confidence: 'high',
-    range: { min: 10, max: 70, value: 38, unit: 'hrs/wk' },
-    facts: [{ label: 'shared_by', value: 'college, clients' }],
-    affects: ['v2', 'v3', 'u1']
-  },
-  {
-    id: 'v2',
-    kind: 'variable',
-    label: 'Course load',
-    detail: 'Credits enrolled this term, including lab and studio hours.',
-    origin: 'inferred',
-    range: { min: 6, max: 21, value: 15, unit: 'credits' },
-    facts: [{ label: 'hrs_per_credit', value: '≈2.5' }],
-    affects: ['v1', 'g2']
-  },
-  {
-    id: 'v3',
-    kind: 'variable',
-    label: 'Active client count',
-    detail: 'Concurrent engagements. Each one carries fixed coordination overhead.',
-    origin: 'inferred',
-    range: { min: 0, max: 8, value: 3, unit: 'clients', step: 1 },
-    facts: [{ label: 'overhead', value: '~3 hrs each' }],
-    affects: ['v1', 'v5']
-  },
-  {
-    id: 'v4',
-    kind: 'variable',
-    label: 'Recovery time',
-    detail: 'Unscheduled hours per week. The first thing overload consumes.',
-    origin: 'inferred',
-    confidence: 'low',
-    range: { min: 0, max: 30, value: 6, unit: 'hrs/wk' },
-    affects: ['g3']
-  },
-  {
-    id: 'v5',
-    kind: 'variable',
-    label: 'Effective hourly rate',
-    detail: 'Revenue divided by all hours worked, including unbilled coordination.',
-    origin: 'inferred',
-    range: { min: 15, max: 200, value: 62, unit: '$/hr' },
-    affects: ['g1']
-  },
-  {
-    id: 'v6',
-    kind: 'variable',
-    label: 'Delivery lead time',
-    detail: 'Days between commitment and delivery. Rises non-linearly as hours compress.',
-    origin: 'inferred',
-    range: { min: 2, max: 45, value: 14, unit: 'days' },
-    affects: ['u2']
-  },
-  {
-    id: 'c1',
-    kind: 'constraint',
-    label: 'Attendance requirement',
-    detail: 'Studio and lab sessions cannot be rescheduled or attended asynchronously.',
-    origin: 'inferred',
-    polarity: 'negative',
-    facts: [{ label: 'hard', value: 'true' }],
-    affects: ['v1']
-  },
-  {
-    id: 'c2',
-    kind: 'constraint',
-    label: 'Full-time enrolment tied to aid',
-    detail: 'Dropping below 12 credits may forfeit financial aid for the year.',
-    origin: 'inferred',
-    confidence: 'low',
-    polarity: 'warning',
-    facts: [{ label: 'threshold', value: '12 credits' }],
-    affects: ['o3']
-  },
-  {
-    id: 'c3',
-    kind: 'constraint',
-    label: 'Existing client commitments',
-    detail: 'Signed scopes run to end of term and cannot be reduced unilaterally.',
-    origin: 'user',
-    polarity: 'negative',
-    facts: [{ label: 'locked_until', value: 'term end' }],
-    affects: ['o1', 'o4']
-  },
-  {
-    id: 'u1',
-    kind: 'unknown',
-    label: 'Actual hours lost to context switching',
-    detail:
-    'Switching between coursework and client work has a real cost that has not been measured.',
-    origin: 'unknown',
-    facts: [{ label: 'estimate', value: '4–12 hrs/wk' }],
-    affects: ['v1']
-  },
-  {
-    id: 'u2',
-    kind: 'unknown',
-    label: 'Client tolerance for slower delivery',
-    detail: 'Unclear whether current clients would accept longer lead times over losing you.',
-    origin: 'unknown',
-    facts: [{ label: 'testable', value: 'yes — one conversation' }],
-    affects: ['o1', 'o2']
-  },
-  {
-    id: 'u3',
-    kind: 'unknown',
-    label: 'Post-graduation pipeline',
-    detail: 'Whether current clients convert into sustained work after the degree ends.',
-    origin: 'unknown',
-    affects: ['g1']
-  },
-  {
-    id: 'a1',
-    kind: 'assumption',
-    label: 'College load is fixed this term',
-    detail: 'Treated as immovable until the add/drop window is confirmed.',
-    origin: 'inferred',
-    confidence: 'medium',
-    facts: [{ label: 'revisit', value: 'add/drop date' }],
-    affects: ['v2']
-  },
-  {
-    id: 'a2',
-    kind: 'assumption',
-    label: 'Contracting is a long-term intent, not a stopgap',
-    detail: 'Read from “I want to become a contractor” rather than “I need money now”.',
-    origin: 'inferred',
-    confidence: 'high',
-    affects: ['g1']
-  },
-  {
-    id: 'a3',
-    kind: 'assumption',
-    label: 'Quality problems come from capacity, not skill',
-    detail: 'If this is wrong, reducing scope will not fix delivery quality.',
-    origin: 'inferred',
-    confidence: 'low',
-    polarity: 'warning',
-    affects: ['o1', 'o2']
-  }],
-
+    {
+      id: 'dc-1',
+      kind: 'decision',
+      label: 'Balance college workload and contracting',
+      detail: 'Central decision on how to structure weekly time allocation.',
+      origin: 'user',
+      x: 80,
+      y: 180,
+      facts: [{ label: 'focus', value: 'Primary' }]
+    },
+    {
+      id: 'g1',
+      kind: 'goal',
+      label: 'Build sustainable contracting income',
+      detail: 'Reach revenue level that survives graduation without client churn.',
+      origin: 'user',
+      x: 1320,
+      y: 80,
+      facts: [
+        { label: 'horizon', value: '18 months' },
+        { label: 'priority', value: 'primary' }
+      ],
+      affects: ['o1', 'o2', 'v1']
+    },
+    {
+      id: 'g2',
+      kind: 'goal',
+      label: 'Finish degree on schedule',
+      detail: 'No dropped semesters, graduate with current cohort.',
+      origin: 'user',
+      x: 1320,
+      y: 240,
+      facts: [{ label: 'deadline', value: 'fixed' }],
+      affects: ['c1', 'v2']
+    },
+    {
+      id: 'g3',
+      kind: 'goal',
+      label: 'Avoid burnout',
+      detail: 'Maintain healthy recovery time and mental clarity.',
+      origin: 'inferred',
+      confidence: 'medium',
+      x: 1320,
+      y: 400,
+      facts: [{ label: 'signal', value: 'overload language' }],
+      affects: ['v1', 'v4']
+    },
+    {
+      id: 'o1',
+      kind: 'option',
+      label: 'Reduce contract scope',
+      detail: 'Cut to single retainer client with repeatable deliverable.',
+      origin: 'inferred',
+      polarity: 'positive',
+      x: 380,
+      y: 80,
+      facts: [
+        { label: 'income', value: '−35%' },
+        { label: 'load', value: '−55%' }
+      ],
+      affects: ['v1', 'v3']
+    },
+    {
+      id: 'o2',
+      kind: 'option',
+      label: 'Subcontract execution',
+      detail: 'Stay client-facing, delegate delivery work.',
+      origin: 'inferred',
+      polarity: 'warning',
+      x: 380,
+      y: 230,
+      facts: [
+        { label: 'margin', value: '−40%' },
+        { label: 'risk', value: 'quality' }
+      ],
+      affects: ['v3', 'u2']
+    },
+    {
+      id: 'o3',
+      kind: 'option',
+      label: 'Reduce course load',
+      detail: 'Drop to part-time enrolment, extend graduation by 1 term.',
+      origin: 'inferred',
+      polarity: 'negative',
+      x: 380,
+      y: 380,
+      facts: [
+        { label: 'graduation', value: '+1 sem' },
+        { label: 'aid', value: 'at risk' }
+      ],
+      affects: ['g2', 'c2', 'v2']
+    },
+    {
+      id: 'v1',
+      kind: 'input',
+      label: 'College workload',
+      detail: 'Estimated weekly hours spent on classes, labs, and assignments.',
+      origin: 'user',
+      confidence: 'high',
+      range: { min: 10, max: 70, value: 38, unit: 'hrs/wk' },
+      x: 680,
+      y: 80,
+      facts: [{ label: 'type', value: 'User Input' }],
+      affects: ['v2', 'v3', 'u1']
+    },
+    {
+      id: 'v2',
+      kind: 'computed',
+      label: 'Available time',
+      detail: 'Derived flexible time remaining for client engagements.',
+      origin: 'inferred',
+      computedFormula: '168 - College Workload - Sleep',
+      range: { min: 5, max: 50, value: 24, unit: 'hrs/wk' },
+      x: 990,
+      y: 80,
+      facts: [{ label: 'derived', value: 'Dynamic' }],
+      affects: ['v3', 'g2']
+    },
+    {
+      id: 'v3',
+      kind: 'computed',
+      label: 'Contractor workload capacity',
+      detail: 'Maximum concurrent client engagements supported.',
+      origin: 'inferred',
+      range: { min: 0, max: 8, value: 3, unit: 'clients', step: 1 },
+      x: 990,
+      y: 240,
+      facts: [{ label: 'overhead', value: '~3 hrs each' }],
+      affects: ['v5']
+    },
+    {
+      id: 'v4',
+      kind: 'variable',
+      label: 'Recovery time',
+      detail: 'Unscheduled hours per week for rest and buffer.',
+      origin: 'inferred',
+      confidence: 'low',
+      range: { min: 0, max: 30, value: 6, unit: 'hrs/wk' },
+      x: 680,
+      y: 380,
+      affects: ['g3']
+    },
+    {
+      id: 'v5',
+      kind: 'impact',
+      label: 'Career progress & project completion',
+      detail: 'Project delivery reliability and long-term trajectory.',
+      origin: 'inferred',
+      range: { min: 15, max: 200, value: 85, unit: 'score' },
+      x: 1320,
+      y: 560,
+      affects: ['g1']
+    },
+    {
+      id: 'c1',
+      kind: 'constraint',
+      label: 'Attendance requirement',
+      detail: 'Studio and lab sessions cannot be rescheduled.',
+      origin: 'inferred',
+      polarity: 'negative',
+      x: 680,
+      y: 230,
+      facts: [{ label: 'hard limit', value: 'true' }],
+      affects: ['v1']
+    },
+    {
+      id: 'u1',
+      kind: 'unknown',
+      label: 'Hours lost to context switching',
+      detail: 'Unmeasured penalty when toggling between study and client work.',
+      origin: 'unknown',
+      x: 680,
+      y: 530,
+      facts: [{ label: 'estimate', value: '4–12 hrs/wk' }],
+      affects: ['v1']
+    },
+    {
+      id: 'a1',
+      kind: 'assumption',
+      label: 'College load is fixed this term',
+      detail: 'Treated as immovable until add/drop date.',
+      origin: 'inferred',
+      confidence: 'medium',
+      x: 380,
+      y: 530,
+      facts: [{ label: 'revisit', value: 'add/drop date' }],
+      affects: ['v2']
+    }
+  ],
   consequences: [
-  {
-    id: 'k1',
-    label: 'Delivery quality recovers before income does',
-    detail: 'Cutting clients frees hours immediately; revenue takes two to three months to stabilise.',
-    polarity: 'positive',
-    driver: 'v3'
-  },
-  {
-    id: 'k2',
-    label: 'Financial aid becomes the binding constraint',
-    detail: 'Any path that reduces course load below 12 credits collides with c2.',
-    polarity: 'negative',
-    driver: 'c2'
-  },
-  {
-    id: 'k3',
-    label: 'Recovery time is the first thing to disappear',
-    detail: 'At current hours the model shows recovery approaching zero before either goal fails.',
-    polarity: 'warning',
-    driver: 'v4'
-  }]
-
+    {
+      id: 'k1',
+      label: 'Delivery quality recovers before income does',
+      detail: 'Cutting clients frees hours immediately; revenue stabilizes over 2–3 months.',
+      polarity: 'positive',
+      driver: 'v3'
+    }
+  ]
 };
 
-export const relocationDecision: DecisionModel = {
-  id: 'relocation',
-  title: 'Relocating with a remote role',
-  prompt:
-  'My company went remote-first and I could move somewhere cheaper, but my partner’s career is here and we just started fertility treatment.',
-  summary:
-  'Three commitments with different reversibility. Housing cost is the adjustable surface; treatment continuity and one career are close to fixed.',
-  items: [
-  {
-    id: 'g1',
-    kind: 'goal',
-    label: 'Lower fixed monthly cost',
-    detail: 'Reduce the burn rate enough that one income could carry the household.',
-    origin: 'user',
-    affects: ['v1']
-  },
-  {
-    id: 'g2',
-    kind: 'goal',
-    label: 'Keep both careers intact',
-    detail: 'Neither person takes a step backwards in seniority.',
-    origin: 'user',
-    affects: ['o1', 'o2']
-  },
-  {
-    id: 'o1',
-    kind: 'option',
-    label: 'Move now',
-    detail: 'Relocate before the next lease renewal and transfer care.',
-    origin: 'inferred',
-    polarity: 'warning',
-    affects: ['c1']
-  },
-  {
-    id: 'o2',
-    kind: 'option',
-    label: 'Defer twelve months',
-    detail: 'Stay through the treatment cycle, reassess with more information.',
-    origin: 'inferred',
-    polarity: 'positive',
-    affects: ['u1']
-  },
-  {
-    id: 'v1',
-    kind: 'variable',
-    label: 'Monthly housing cost',
-    detail: 'The largest single line item and the clearest lever.',
-    origin: 'inferred',
-    range: { min: 900, max: 5200, value: 3400, unit: '$/mo' },
-    affects: ['g1']
-  },
-  {
-    id: 'v2',
-    kind: 'variable',
-    label: 'Distance from current care team',
-    detail: 'Drives both continuity risk and travel cost.',
-    origin: 'inferred',
-    range: { min: 0, max: 2500, value: 0, unit: 'miles' },
-    affects: ['c1']
-  },
-  {
-    id: 'c1',
-    kind: 'constraint',
-    label: 'Treatment continuity',
-    detail: 'The current cycle cannot be interrupted or transferred mid-protocol.',
-    origin: 'user',
-    polarity: 'negative',
-    affects: ['o1']
-  },
-  {
-    id: 'u1',
-    kind: 'unknown',
-    label: 'Whether the remote policy is permanent',
-    detail: 'No written commitment beyond the current fiscal year.',
-    origin: 'unknown',
-    affects: ['o1', 'o2']
-  },
-  {
-    id: 'a1',
-    kind: 'assumption',
-    label: 'Partner’s field is location-dependent',
-    detail: 'Assumed from “her career is here”. Worth testing before modelling further.',
-    origin: 'inferred',
-    confidence: 'low',
-    affects: ['g2']
-  }],
-
-  consequences: [
-  {
-    id: 'k1',
-    label: 'Timing dominates destination',
-    detail: 'When you move changes the outcome more than where you move.',
-    polarity: 'warning',
-    driver: 'c1'
-  }]
-
-};
-
-export const pricingDecision: DecisionModel = {
-  id: 'pricing',
-  title: 'Raising prices on existing customers',
-  prompt:
-  'We need to raise prices but half our revenue comes from six early customers who are on legacy plans.',
-  summary:
-  'A concentration problem disguised as a pricing problem. The model separates the price change from the account risk it creates.',
-  items: [
-  {
-    id: 'g1',
-    kind: 'goal',
-    label: 'Reach gross-margin target',
-    detail: 'Cover rising infrastructure cost without new headcount.',
-    origin: 'user',
-    affects: ['v1']
-  },
-  {
-    id: 'o1',
-    kind: 'option',
-    label: 'Grandfather indefinitely',
-    detail: 'Raise prices for new customers only.',
-    origin: 'inferred',
-    polarity: 'neutral',
-    affects: ['v2']
-  },
-  {
-    id: 'o2',
-    kind: 'option',
-    label: 'Phased migration',
-    detail: 'Move legacy accounts over three renewal cycles with notice.',
-    origin: 'inferred',
-    polarity: 'positive',
-    affects: ['v2', 'u1']
-  },
-  {
-    id: 'v1',
-    kind: 'variable',
-    label: 'Price increase',
-    detail: 'Applied to the legacy cohort.',
-    origin: 'inferred',
-    range: { min: 0, max: 100, value: 22, unit: '%' },
-    affects: ['v2']
-  },
-  {
-    id: 'v2',
-    kind: 'variable',
-    label: 'Churn risk in legacy cohort',
-    detail: 'Non-linear: tolerance collapses past a threshold rather than degrading smoothly.',
-    origin: 'inferred',
-    range: { min: 0, max: 100, value: 18, unit: '%' },
-    affects: ['g1']
-  },
-  {
-    id: 'c1',
-    kind: 'constraint',
-    label: 'Revenue concentration',
-    detail: 'Six accounts represent half of revenue. Losing two is not survivable this year.',
-    origin: 'user',
-    polarity: 'negative',
-    affects: ['o1', 'o2']
-  },
-  {
-    id: 'u1',
-    kind: 'unknown',
-    label: 'Actual switching cost for legacy customers',
-    detail: 'Never measured. Determines how much pricing power you actually hold.',
-    origin: 'unknown',
-    affects: ['v2']
-  }],
-
-  consequences: [
-  {
-    id: 'k1',
-    label: 'Concentration, not price, is the real exposure',
-    detail: 'Every option leaves the same six accounts able to decide the year.',
-    polarity: 'negative',
-    driver: 'c1'
-  }]
-
-};
-
-export const exampleDecisions: DecisionModel[] = [
-contractorDecision,
-relocationDecision,
-pricingDecision];
-
-
-export const examplePrompts: {label: string;prompt: string;}[] = exampleDecisions.map((d) => ({
+export const exampleDecisions: DecisionModel[] = [contractorDecision];
+export const examplePrompts = exampleDecisions.map((d) => ({
   label: d.title,
   prompt: d.prompt
 }));

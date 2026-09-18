@@ -1,4 +1,3 @@
-import React from 'react';
 import { PlusIcon, Trash2Icon, XIcon } from 'lucide-react';
 import { ModelItem, ORIGIN_LABEL, Origin } from '../../types/decision';
 import { KIND_META } from '../../utils/kindMeta';

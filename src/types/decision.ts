@@ -1,10 +1,14 @@
 export type ItemKind =
-'goal' |
-'option' |
-'variable' |
-'constraint' |
-'unknown' |
-'assumption';
+  | 'decision'
+  | 'option'
+  | 'input'
+  | 'variable'
+  | 'computed'
+  | 'goal'
+  | 'constraint'
+  | 'impact'
+  | 'assumption'
+  | 'unknown';
 
 /** Where a piece of the model came from. Drives the provenance language across the UI. */
 export type Origin = 'user' | 'inferred' | 'unknown';
@@ -12,6 +16,8 @@ export type Origin = 'user' | 'inferred' | 'unknown';
 export type Confidence = 'high' | 'medium' | 'low';
 
 export type Polarity = 'positive' | 'negative' | 'warning' | 'neutral';
+
+export type VariableControlType = 'numeric' | 'slider' | 'dropdown' | 'toggle' | 'date' | 'percentage';
 
 export interface ItemFact {
   label: string;
@@ -25,13 +31,45 @@ export interface ModelItem {
   detail: string;
   origin: Origin;
   confidence?: Confidence;
+  /** Canvas layout coordinates */
+  x?: number;
+  y?: number;
+  /** Value representation */
+  value?: string | number | boolean;
+  /** UI control type for editing */
+  controlType?: VariableControlType;
+  selectOptions?: string[];
+  computedFormula?: string;
   /** Short technical facts rendered in monospace on the card. */
   facts?: ItemFact[];
   /** Ids of other items this item affects. */
   affects?: string[];
   polarity?: Polarity;
   /** Numeric variables get a tunable range. */
-  range?: {min: number;max: number;value: number;unit: string;step?: number;};
+  range?: {
+    min: number;
+    max: number;
+    value: number;
+    unit: string;
+    step?: number;
+  };
+  /** Unknown estimation choices */
+  unknownEstimation?: {
+    type?: 'range' | 'qualitative' | 'exact' | 'unresolved';
+    qualitative?: 'low' | 'medium' | 'high';
+    rangeMin?: number;
+    rangeMax?: number;
+  };
+}
+
+export interface ModelEdge {
+  id: string;
+  from: string;
+  to: string;
+  relationshipType?: 'direct' | 'inverse' | 'constrains' | 'drives' | 'mitigates' | 'depends';
+  explanation?: string;
+  origin?: Origin;
+  confidence?: Confidence;
 }
 
 export interface Consequence {
@@ -42,44 +80,66 @@ export interface Consequence {
   driver: string;
 }
 
+export interface Scenario {
+  id: string;
+  title: string;
+  description: string;
+  isCurrent?: boolean;
+  variableValues: Record<string, number | string | boolean>;
+}
+
 export interface DecisionModel {
   id: string;
   title: string;
   prompt: string;
   summary: string;
   items: ModelItem[];
+  edges?: ModelEdge[];
   consequences: Consequence[];
+  scenarios?: Scenario[];
 }
 
 export const KIND_ORDER: ItemKind[] = [
-'goal',
-'option',
-'variable',
-'constraint',
-'unknown',
-'assumption'];
-
+  'decision',
+  'option',
+  'input',
+  'variable',
+  'computed',
+  'goal',
+  'constraint',
+  'impact',
+  'assumption',
+  'unknown'
+];
 
 export const KIND_LABEL: Record<ItemKind, string> = {
-  goal: 'Goals',
+  decision: 'Decision',
   option: 'Options',
+  input: 'Inputs',
   variable: 'Variables',
+  computed: 'Computed',
+  goal: 'Goals',
   constraint: 'Constraints',
-  unknown: 'Unknowns',
-  assumption: 'Assumptions'
+  impact: 'Impacts',
+  assumption: 'Assumptions',
+  unknown: 'Unknowns'
 };
 
 export const KIND_DESCRIPTION: Record<ItemKind, string> = {
-  goal: 'What a good outcome has to satisfy. Goals are scored, never chosen for you.',
-  option: 'Distinct paths available from where you stand today.',
+  decision: 'The primary decision or question being evaluated.',
+  option: 'Distinct paths or actions available to choose from.',
+  input: 'A user-provided variable that directly influences calculations.',
   variable: 'Quantities that move. Changing one propagates through the model.',
-  constraint: 'Hard limits the model is not allowed to violate.',
-  unknown: 'Missing information the model treats as a range, not a fact.',
-  assumption: 'Statements the model is currently accepting as true.'
+  computed: 'A value dynamically calculated or derived from other variables.',
+  goal: 'What a good outcome has to satisfy. Goals are scored, never chosen for you.',
+  constraint: 'Hard limits or boundaries the model is not allowed to violate.',
+  impact: 'A modeled consequence or downstream effect on the decision.',
+  assumption: 'Statements or parameters the model currently accepts as true.',
+  unknown: 'Missing or unavailable information treated as a range or estimate.'
 };
 
 export const ORIGIN_LABEL: Record<Origin, string> = {
   user: 'From you',
-  inferred: 'Inferred',
+  inferred: 'AI inferred',
   unknown: 'Unknown'
 };
