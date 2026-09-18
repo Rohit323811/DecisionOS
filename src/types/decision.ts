@@ -19,6 +19,10 @@ export type Polarity = 'positive' | 'negative' | 'warning' | 'neutral';
 
 export type VariableControlType = 'numeric' | 'slider' | 'dropdown' | 'toggle' | 'date' | 'percentage';
 
+export type WorkspaceViewMode = 'canvas' | 'scenarios' | 'stresstest' | 'sensitivity' | 'assumptions' | 'report' | 'states';
+
+export type SystemStateType = 'loading' | 'missing_info' | 'insufficient_data' | 'ai_error' | 'empty_scenario' | 'saved';
+
 export interface ItemFact {
   label: string;
   value: string;
@@ -80,12 +84,25 @@ export interface Consequence {
   driver: string;
 }
 
+export interface SensitivityMetric {
+  id: string;
+  label: string;
+  impactScore: number; // 0–100 magnitude bar
+  unit?: string;
+  description: string;
+}
+
 export interface Scenario {
   id: string;
   title: string;
   description: string;
   isCurrent?: boolean;
   variableValues: Record<string, number | string | boolean>;
+  goalImpacts?: Record<string, string>;
+  constraintStatus?: Record<string, 'Satisfied' | 'At Risk' | 'Breached'>;
+  consequences?: string[];
+  unknownsCount?: number;
+  assumptionsCount?: number;
 }
 
 export interface DecisionModel {
@@ -97,6 +114,7 @@ export interface DecisionModel {
   edges?: ModelEdge[];
   consequences: Consequence[];
   scenarios?: Scenario[];
+  sensitivities?: SensitivityMetric[];
 }
 
 export const KIND_ORDER: ItemKind[] = [
@@ -139,7 +157,7 @@ export const KIND_DESCRIPTION: Record<ItemKind, string> = {
 };
 
 export const ORIGIN_LABEL: Record<Origin, string> = {
-  user: 'From you',
+  user: 'User provided',
   inferred: 'AI inferred',
   unknown: 'Unknown'
 };

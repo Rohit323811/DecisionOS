@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { DecisionModel, ItemKind, ModelItem, Scenario } from '../types/decision';
+import { DecisionModel, ItemKind, ModelItem, Scenario, WorkspaceViewMode } from '../types/decision';
 import { contractorDecision, exampleDecisions } from '../data/exampleDecisions';
 
 interface DecisionContextValue {
@@ -10,6 +10,8 @@ interface DecisionContextValue {
   historyIndex: number;
   historyLength: number;
   activePropagatingIds: Set<string>;
+  currentViewMode: WorkspaceViewMode;
+  setCurrentViewMode: (mode: WorkspaceViewMode) => void;
   buildModelFor: (prompt: string) => DecisionModel;
   commitModel: (model: DecisionModel) => void;
   updateItem: (id: string, patch: Partial<ModelItem>) => void;
@@ -45,6 +47,7 @@ export function DecisionProvider({ children }: { children: React.ReactNode }) {
   const [historyIndex, setHistoryIndex] = useState(0);
   const [activeScenarioId, setActiveScenarioId] = useState<string>('sc-1');
   const [activePropagatingIds, setActivePropagatingIds] = useState<Set<string>>(new Set());
+  const [currentViewMode, setCurrentViewMode] = useState<WorkspaceViewMode>('canvas');
 
   const currentModel = historyIndex >= 0 && historyIndex < history.length ? history[historyIndex] : null;
 
@@ -58,15 +61,17 @@ export function DecisionProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const pushState = useCallback((nextModel: DecisionModel) => {
-    setHistory((prev) => {
-      const sliced = prev.slice(0, historyIndex + 1);
-      return [...sliced, nextModel];
-    });
-    setHistoryIndex((prev) => prev + 1);
-  }, [historyIndex]);
+  const pushState = useCallback(
+    (nextModel: DecisionModel) => {
+      setHistory((prev) => {
+        const sliced = prev.slice(0, historyIndex + 1);
+        return [...sliced, nextModel];
+      });
+      setHistoryIndex((prev) => prev + 1);
+    },
+    [historyIndex]
+  );
 
-  // Flash propagation on affected nodes
   const triggerPropagation = useCallback((sourceId: string, model: DecisionModel) => {
     const affected = new Set<string>([sourceId]);
     model.items.forEach((item) => {
@@ -144,7 +149,6 @@ export function DecisionProvider({ children }: { children: React.ReactNode }) {
       const sc = currentModel.scenarios?.find((s) => s.id === scenarioId);
       if (!sc) return;
 
-      // Apply scenario variable values to current items
       const updatedItems = currentModel.items.map((item) => {
         if (sc.variableValues[item.id] !== undefined) {
           const val = sc.variableValues[item.id];
@@ -185,7 +189,12 @@ export function DecisionProvider({ children }: { children: React.ReactNode }) {
 
   const applyShock = useCallback(
     (id: string, val: number | boolean) => {
-      updateItem(id, typeof val === 'number' && currentModel?.items.find((i) => i.id === id)?.range ? { range: { ...currentModel!.items.find((i) => i.id === id)!.range!, value: val } } : { value: val });
+      updateItem(
+        id,
+        typeof val === 'number' && currentModel?.items.find((i) => i.id === id)?.range
+          ? { range: { ...currentModel!.items.find((i) => i.id === id)!.range!, value: val } }
+          : { value: val }
+      );
     },
     [currentModel, updateItem]
   );
@@ -217,6 +226,8 @@ export function DecisionProvider({ children }: { children: React.ReactNode }) {
       historyIndex,
       historyLength: history.length,
       activePropagatingIds,
+      currentViewMode,
+      setCurrentViewMode,
       buildModelFor,
       commitModel,
       updateItem,
@@ -237,6 +248,7 @@ export function DecisionProvider({ children }: { children: React.ReactNode }) {
       historyIndex,
       history.length,
       activePropagatingIds,
+      currentViewMode,
       buildModelFor,
       commitModel,
       updateItem,
