@@ -1,0 +1,82 @@
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  --bg: #0a0b0d;
+  --surface: #101216;
+  --elevated: #15181d;
+  --line: #22262c;
+  --line-strong: #2f353d;
+  --fg: #e7e9ec;
+  --fg-secondary: #99a0a9;
+  --fg-muted: #636a73;
+  --accent: #3fbfb0;
+  --positive: #7bc47f;
+  --warning: #e0a458;
+  --negative: #e0685e;
+  --unknown: #8a93a0;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+}
+::selection {
+  background: rgba(63, 191, 176, 0.25);
+}
+/* Focus ring — consistent across every interactive surface */
+*:focus-visible {
+  outline: 2px solid rgba(63, 191, 176, 0.65);
+  outline-offset: 2px;
+}
+/* Scrollbars */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #23272e;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 99px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #343a42;
+  background-clip: content-box;
+}
+.grid-field {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+.dash-flow {
+  stroke-dasharray: 3 5;
+  animation: dash-flow 1.4s linear infinite;
+}
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-flow {
+    animation: none;
+  }
+}
