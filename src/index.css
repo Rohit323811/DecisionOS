@@ -80,3 +80,31 @@ body {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* React Flow — visual integration with the DecisionOS design system   */
+/* ------------------------------------------------------------------ */
+.decisionos-flow {
+  --xy-background-color: #090b0e;
+  background: #090b0e;
+  cursor: grab;
+}
+.decisionos-flow:active {
+  cursor: grabbing;
+}
+
+/* Model nodes carry no visible connection ports — edges meet the cards. */
+.rf-invisible-handle {
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  min-height: 1px;
+  border: none;
+}
+
+/* Keep React Flow's edge hit-target invisible. */
+.rf-flow-edge.interactive {
+  pointer-events: stroke;
+}

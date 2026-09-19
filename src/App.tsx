@@ -4,6 +4,7 @@ import { ToastProvider } from './components/ui/Toast';
 import { Landing } from './pages/Landing';
 import { DecisionInput } from './pages/DecisionInput';
 import { Analysis } from './pages/Analysis';
+import { ModelReview } from './pages/ModelReview';
 import { DecisionModel } from './pages/DecisionModel';
 
 export function App() {
@@ -15,11 +16,14 @@ export function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/new" element={<DecisionInput />} />
             <Route path="/analyzing" element={<Analysis />} />
+            <Route path="/review" element={<ModelReview />} />
             <Route path="/model" element={<DecisionModel />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </DecisionProvider>
       </ToastProvider>
-    </BrowserRouter>);
-
+    </BrowserRouter>
+  );
 }
+
+export default App;

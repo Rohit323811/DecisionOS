@@ -17,7 +17,20 @@ export type Confidence = 'high' | 'medium' | 'low';
 
 export type Polarity = 'positive' | 'negative' | 'warning' | 'neutral';
 
-export type VariableControlType = 'numeric' | 'slider' | 'dropdown' | 'toggle' | 'date' | 'percentage';
+export type VariableControlType = 'numeric' | 'slider' | 'dropdown' | 'toggle' | 'date' | 'percentage' | 'currency' | 'text';
+
+/** Canonical variable types the AI may assign. The inspector renders one control per type. */
+export type VariableType =
+  | 'number'
+  | 'percentage'
+  | 'currency'
+  | 'duration'
+  | 'date'
+  | 'boolean'
+  | 'choice'
+  | 'scale'
+  | 'text'
+  | 'unknown';
 
 export interface ItemFact {
   label: string;
@@ -36,6 +49,8 @@ export interface ModelItem {
   y?: number;
   /** Value representation */
   value?: string | number | boolean;
+  /** Canonical variable type — drives which inspector control renders. */
+  variableType?: VariableType;
   /** UI control type for editing */
   controlType?: VariableControlType;
   selectOptions?: string[];
@@ -77,7 +92,9 @@ export interface Consequence {
   label: string;
   detail: string;
   polarity: Polarity;
+  /** Id of the node that drives this consequence. */
   driver: string;
+  polarityShift?: number;
 }
 
 export interface Scenario {
@@ -97,6 +114,9 @@ export interface DecisionModel {
   edges?: ModelEdge[];
   consequences: Consequence[];
   scenarios?: Scenario[];
+  /** How this model was produced — surfaced in the UI and persisted. */
+  source?: 'ai' | 'demo';
+  generatedAt?: string;
 }
 
 export const KIND_ORDER: ItemKind[] = [
@@ -143,3 +163,60 @@ export const ORIGIN_LABEL: Record<Origin, string> = {
   inferred: 'AI inferred',
   unknown: 'Unknown'
 };
+
+export const VARIABLE_TYPE_LABEL: Record<VariableType, string> = {
+  number: 'Number',
+  percentage: 'Percentage',
+  currency: 'Currency',
+  duration: 'Duration',
+  date: 'Date',
+  boolean: 'Toggle',
+  choice: 'Choice',
+  scale: 'Scale',
+  text: 'Text',
+  unknown: 'Unknown'
+};
+
+/** Map a canonical variable type to the inspector control that edits it. */
+export function controlTypeForVariableType(vt: VariableType | undefined): VariableControlType {
+  switch (vt) {
+    case 'percentage':
+      return 'percentage';
+    case 'currency':
+      return 'currency';
+    case 'boolean':
+      return 'toggle';
+    case 'choice':
+      return 'dropdown';
+    case 'date':
+      return 'date';
+    case 'text':
+    case 'unknown':
+      return 'text';
+    case 'number':
+    case 'duration':
+    case 'scale':
+    default:
+      return 'slider';
+  }
+}
+
+/** Map an inspector control back to a variable type (used when the user retypes a variable). */
+export function variableTypeForControlType(ct: VariableControlType): VariableType {
+  switch (ct) {
+    case 'percentage':
+      return 'percentage';
+    case 'currency':
+      return 'currency';
+    case 'toggle':
+      return 'boolean';
+    case 'dropdown':
+      return 'choice';
+    case 'date':
+      return 'date';
+    case 'text':
+      return 'text';
+    default:
+      return 'number';
+  }
+}

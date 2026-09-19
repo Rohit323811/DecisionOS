@@ -1,12 +1,40 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import {
-  ArrowRightIcon,
-  HelpCircleIcon
-} from 'lucide-react';
+  Background,
+  BackgroundVariant,
+  BaseEdge,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  getBezierPath,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+} from '@xyflow/react';
+import type { Edge, EdgeProps, Node, NodeProps } from '@xyflow/react';
+import { ArrowRightIcon, HelpCircleIcon } from 'lucide-react';
+import '@xyflow/react/dist/style.css';
 import { ItemKind, ModelEdge, ModelItem } from '../../types/decision';
+import { formatDelta } from '../../utils/decisionEngine';
 import { KIND_META } from '../../utils/kindMeta';
 import { cn } from '../../utils/cn';
+
+/**
+ * Graph workspace canvas — built on React Flow, styled to reproduce the
+ * original DecisionOS canvas design: kind-tinted node cards, directional
+ * bezier edges with dimming, dashed constraint edges and flow dots on
+ * active paths. Nodes and edges are generated dynamically from whatever
+ * DecisionModel is loaded; nothing about the shape is hardcoded.
+ */
+
+export interface CanvasGraphHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fitView: () => void;
+  resetLayout: () => void;
+}
 
 interface CanvasGraphProps {
   items: ModelItem[];
@@ -16,8 +44,7 @@ interface CanvasGraphProps {
   hoveredNodeId: string | null;
   hoveredEdgeId: string | null;
   activePropagatingIds?: Set<string>;
-  zoom: number;
-  pan: { x: number; y: number };
+  propagationDeltas?: Record<string, number>;
   searchQuery?: string;
   kindFilter?: ItemKind | 'all';
   showFlowAnimation?: boolean;
@@ -26,473 +53,372 @@ interface CanvasGraphProps {
   onHoverNode: (id: string | null) => void;
   onHoverEdge: (id: string | null) => void;
   onNodeMove: (id: string, x: number, y: number) => void;
-  onPanChange: (pan: { x: number; y: number }) => void;
-  onZoomChange: (zoom: number) => void;
+  onViewportChange?: (zoom: number) => void;
 }
 
-const DEFAULT_NODE_WIDTH = 240;
-const DEFAULT_NODE_HEIGHT = 110;
-
-/** Default auto-layout helper if nodes do not have (x, y) */
-function getDefaultPositions(items: ModelItem[]) {
-  const kindColumns: Record<string, number> = {
-    decision: 0,
-    option: 1,
-    input: 1,
-    variable: 2,
-    computed: 3,
-    goal: 4,
-    constraint: 4,
-    impact: 4,
-    assumption: 2,
-    unknown: 1
-  };
-
-  const columnY: Record<number, number> = { 0: 100, 1: 80, 2: 80, 3: 80, 4: 80 };
-  const X_SPACING = 310;
-  const Y_SPACING = 150;
-  const positions: Record<string, { x: number; y: number }> = {};
-
-  items.forEach((item) => {
-    if (typeof item.x === 'number' && typeof item.y === 'number') {
-      positions[item.id] = { x: item.x, y: item.y };
-      return;
-    }
-    const col = kindColumns[item.kind] ?? 2;
-    const y = columnY[col] || 80;
-    columnY[col] = y + Y_SPACING;
-    positions[item.id] = { x: 100 + col * X_SPACING, y };
-  });
-
-  return positions;
+interface NodeData extends Record<string, unknown> {
+  item: ModelItem;
+  selected: boolean;
+  upstream: boolean;
+  downstream: boolean;
+  propagating: boolean;
+  dimmed: boolean;
+  deltaLabel: string | null;
 }
 
-export function CanvasGraph({
-  items,
-  edges,
-  selectedNodeId,
-  selectedEdgeId,
-  hoveredNodeId,
-  hoveredEdgeId,
-  activePropagatingIds = new Set(),
-  zoom,
-  pan,
-  searchQuery = '',
-  kindFilter = 'all',
-  showFlowAnimation = true,
-  onSelectNode,
-  onSelectEdge,
-  onHoverNode,
-  onHoverEdge,
-  onNodeMove,
-  onPanChange,
-  onZoomChange
-}: CanvasGraphProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isPanning, setIsPanning] = useState(false);
-  const [startPan, setStartPan] = useState({ x: 0, y: 0 });
-  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+type AppNode = Node<NodeData, 'decisionNode'>;
 
-  // Node position map
-  const positions = useMemo(() => getDefaultPositions(items), [items]);
+interface EdgeData extends Record<string, unknown> {
+  strokeColor: string;
+  strokeWidth: number;
+  dashed: boolean;
+  animated: boolean;
+  dimmed: boolean;
+}
 
-  // Upstream (parents) and Downstream (children) sets
+type AppEdge = Edge<EdgeData, 'flowEdge'>;
+
+const NODE_W = 240;
+
+/** Mirror of the original canvas: upstream = blue, downstream = emerald, focus = teal. */
+function nodeBorderClass(d: NodeData): string {
+  const isUnknown = d.item.kind === 'unknown' || d.item.origin === 'unknown';
+  if (d.selected) return 'border-accent bg-[#102422] shadow-[0_0_20px_rgba(63,191,176,0.25)] ring-1 ring-accent';
+  if (d.downstream) return 'border-[#34d399] bg-[#064e3b]/30 shadow-[0_0_12px_rgba(52,211,153,0.15)]';
+  if (d.upstream) return 'border-[#3b82f6] bg-[#0f172a] shadow-[0_0_12px_rgba(59,130,246,0.15)]';
+  if (isUnknown) return 'border-dashed border-[#475569] bg-[#0f1217]';
+  return KIND_META[d.item.kind]?.fill ?? KIND_META.variable.fill;
+}
+
+const DecisionNode = memoNode(function DecisionNode({ data }: NodeProps<AppNode>) {
+  const { item, selected, propagating, dimmed, deltaLabel, upstream, downstream } = data;
+  const meta = KIND_META[item.kind] ?? KIND_META.variable;
+  const Icon = meta.icon;
+  const isUnknown = item.kind === 'unknown' || item.origin === 'unknown';
+
+  return (
+    <div
+      style={{ width: NODE_W }}
+      className={cn(
+        'graph-node rounded-xl border p-3.5 shadow-lg backdrop-blur-sm transition-[border-color,background-color,box-shadow,opacity] duration-200 ease-out',
+        nodeBorderClass(data),
+        dimmed && 'opacity-25 grayscale-[30%]',
+        propagating && 'ring-2 ring-amber-400 animate-pulse'
+      )}
+    >
+      <Handle type="target" position={Position.Left} className="rf-invisible-handle" isConnectable={false} />
+      <Handle type="source" position={Position.Right} className="rf-invisible-handle" isConnectable={false} />
+
+      <div className="flex items-center justify-between gap-2 border-b border-line/60 pb-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded border text-2xs', meta.fill)}>
+            <Icon className={cn('h-3 w-3', meta.color)} />
+          </span>
+          <span className="font-mono text-2xs uppercase tracking-wider text-fg-muted truncate">{item.kind}</span>
+        </div>
+        {deltaLabel ? (
+          <span
+            className={cn(
+              'font-mono text-2xs font-semibold px-2 py-0.5 rounded bg-surface border border-amber-500/40 text-amber-400',
+              selected && 'text-accent border-accent/40'
+            )}
+          >
+            {deltaLabel}
+          </span>
+        ) : item.value !== undefined ? (
+          <span className="font-mono text-2xs font-semibold px-2 py-0.5 rounded bg-surface border border-line text-accent truncate">
+            {String(item.value)}
+          </span>
+        ) : item.range ? (
+          <span className="font-mono text-2xs font-semibold px-2 py-0.5 rounded bg-surface border border-line text-fg truncate">
+            {item.range.value} {item.range.unit}
+          </span>
+        ) : isUnknown ? (
+          <span className="font-mono text-2xs px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center gap-1">
+            <HelpCircleIcon className="h-2.5 w-2.5" /> Unknown
+          </span>
+        ) : null}
+      </div>
+
+      <h3 className="mt-2 text-[13.5px] font-semibold text-fg leading-snug line-clamp-2">{item.label}</h3>
+      <p className="mt-1 text-2xs text-fg-muted line-clamp-2 leading-relaxed">{item.detail}</p>
+
+      <div className="mt-2.5 flex items-center justify-between pt-1.5 border-t border-line/40 text-2xs font-mono text-fg-muted">
+        <span className="capitalize text-fg-secondary">
+          {item.origin === 'user' ? 'User specified' : item.origin === 'inferred' ? 'AI inferred' : 'Unknown source'}
+        </span>
+        {(upstream || downstream) && (
+          <span className="text-fg-muted">
+            {upstream && 'in'} · {downstream && 'out'}
+          </span>
+        )}
+        {item.affects && item.affects.length > 0 && !upstream && !downstream && (
+          <span className="flex items-center gap-1 text-accent">
+            <ArrowRightIcon className="h-2.5 w-2.5" /> {item.affects.length}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+const FlowEdgeComp = memoEdge(function FlowEdge({ id, sourceX, sourceY, targetX, targetY, data, markerEnd }: EdgeProps<AppEdge>) {
+  const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition: Position.Right, targetPosition: Position.Left });
+  const d = data as EdgeData;
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        interactionWidth={16}
+        className="rf-flow-edge"
+        style={{
+          stroke: d?.strokeColor ?? '#2b313a',
+          strokeWidth: d?.strokeWidth ?? 1.5,
+          strokeDasharray: d?.dashed ? '4 4' : undefined,
+          opacity: d?.dimmed ? 0.15 : 1,
+        }}
+        markerEnd={markerEnd}
+      />
+      {d?.animated && !d.dimmed && (
+        <circle r={3} fill={d.strokeColor}>
+          <animateMotion dur="2s" repeatCount="indefinite" path={path} />
+        </circle>
+      )}
+    </>
+  );
+});
+
+const nodeTypes = { decisionNode: DecisionNode };
+const edgeTypes = { flowEdge: FlowEdgeComp };
+
+function GraphInner({ ref, ...props }: CanvasGraphProps & { ref?: React.Ref<CanvasGraphHandle> }) {
+  const {
+    items, edges, selectedNodeId, selectedEdgeId, hoveredNodeId, hoveredEdgeId,
+    activePropagatingIds = new Set(), propagationDeltas = {}, searchQuery = '', kindFilter = 'all',
+    showFlowAnimation = true, onSelectNode, onSelectEdge, onHoverNode, onHoverEdge, onNodeMove, onViewportChange,
+  } = props;
+
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const initialLayout = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  // ---- highlight topology (identical semantics to the original canvas) ----
   const { upstreamSet, downstreamSet, activeEdgesSet } = useMemo(() => {
     const focusId = selectedNodeId || hoveredNodeId;
     const upstream = new Set<string>();
     const downstream = new Set<string>();
     const activeEdges = new Set<string>();
-
     if (!focusId) return { upstreamSet: upstream, downstreamSet: downstream, activeEdgesSet: activeEdges };
 
-    // Find direct and transitive upstream (parents)
-    function findParents(id: string) {
-      edges.forEach((e) => {
-        if (e.to === id && !upstream.has(e.from)) {
-          upstream.add(e.from);
-          activeEdges.add(e.id);
-          findParents(e.from);
-        }
-      });
-    }
-
-    // Find direct and transitive downstream (children)
-    function findChildren(id: string) {
-      edges.forEach((e) => {
-        if (e.from === id && !downstream.has(e.to)) {
-          downstream.add(e.to);
-          activeEdges.add(e.id);
-          findChildren(e.to);
-        }
-      });
-    }
-
-    findParents(focusId);
-    findChildren(focusId);
-
-    // Also include edges connected directly to focusId
+    const byFrom = new Map<string, ModelEdge[]>();
+    const byTo = new Map<string, ModelEdge[]>();
     edges.forEach((e) => {
-      if (e.from === focusId || e.to === focusId) {
-        activeEdges.add(e.id);
-      }
+      (byFrom.get(e.from) ?? byFrom.set(e.from, []).get(e.from)!).push(e);
+      (byTo.get(e.to) ?? byTo.set(e.to, []).get(e.to)!).push(e);
     });
 
+    const walk = (start: string, map: Map<string, ModelEdge[]>, key: 'from' | 'to', into: Set<string>) => {
+      const stack = [start];
+      const seen = new Set<string>([start]);
+      while (stack.length) {
+        const cur = stack.pop()!;
+        for (const e of map.get(cur) ?? []) {
+          into.add(key === 'from' ? e.to : e.from);
+          activeEdges.add(e.id);
+          const nxt = key === 'from' ? e.to : e.from;
+          if (!seen.has(nxt)) {
+            seen.add(nxt);
+            stack.push(nxt);
+          }
+        }
+      }
+    };
+
+    walk(focusId, byTo, 'to', upstream);
+    walk(focusId, byFrom, 'from', downstream);
     return { upstreamSet: upstream, downstreamSet: downstream, activeEdgesSet: activeEdges };
   }, [selectedNodeId, hoveredNodeId, edges]);
 
-  // Selected edge nodes
-  const selectedEdgeObj = useMemo(() => {
-    return edges.find((e) => e.id === selectedEdgeId) ?? null;
-  }, [edges, selectedEdgeId]);
-
-  // Canvas panning handlers
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest('.graph-node')) return;
-      setIsPanning(true);
-      setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    },
-    [pan]
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isPanning) {
-        onPanChange({ x: e.clientX - startPan.x, y: e.clientY - startPan.y });
-      } else if (draggingNodeId) {
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const currentX = (e.clientX - rect.left - pan.x) / zoom - dragOffset.x;
-        const currentY = (e.clientY - rect.top - pan.y) / zoom - dragOffset.y;
-        onNodeMove(draggingNodeId, Math.round(currentX), Math.round(currentY));
-      }
-    },
-    [isPanning, startPan, draggingNodeId, dragOffset, pan, zoom, onPanChange, onNodeMove]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setIsPanning(false);
-    setDraggingNodeId(null);
-  }, []);
-
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.08 : 0.08;
-        const newZoom = Math.min(Math.max(zoom + delta, 0.4), 2.0);
-        onZoomChange(Number(newZoom.toFixed(2)));
-      } else {
-        onPanChange({ x: pan.x - e.deltaX, y: pan.y - e.deltaY });
-      }
-    },
-    [zoom, pan, onZoomChange, onPanChange]
-  );
-
-  // Node drag start
-  const handleNodeDragStart = (e: React.MouseEvent, node: ModelItem) => {
-    e.stopPropagation();
-    const pos = positions[node.id] || { x: 0, y: 0 };
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const clickX = (e.clientX - rect.left - pan.x) / zoom;
-    const clickY = (e.clientY - rect.top - pan.y) / zoom;
-    setDragOffset({ x: clickX - pos.x, y: clickY - pos.y });
-    setDraggingNodeId(node.id);
-    onSelectNode(node.id);
-  };
-
-  // Helper for generating smooth SVG Bezier path between nodes
-  function calculateEdgePath(fromId: string, toId: string) {
-    const fromPos = positions[fromId];
-    const toPos = positions[toId];
-    if (!fromPos || !toPos) return '';
-
-    const startX = fromPos.x + DEFAULT_NODE_WIDTH;
-    const startY = fromPos.y + DEFAULT_NODE_HEIGHT / 2;
-    const endX = toPos.x;
-    const endY = toPos.y + DEFAULT_NODE_HEIGHT / 2;
-
-    const dx = Math.max(40, Math.abs(endX - startX) * 0.5);
-    return `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
-  }
-
-  // Deselect on backdrop click
-  const handleCanvasClick = (e: React.MouseEvent) => {
-    if (e.target === containerRef.current || (e.target as HTMLElement).tagName === 'svg') {
-      onSelectNode(null);
-      onSelectEdge(null);
-    }
-  };
-
+  const selectedEdgeObj = useMemo(() => edges.find((e) => e.id === selectedEdgeId) ?? null, [edges, selectedEdgeId]);
   const q = searchQuery.trim().toLowerCase();
 
+  // ---- build RF nodes from model items ----
+  const rfNodes: AppNode[] = useMemo(() => {
+    return items.map((item) => {
+      const isSel = selectedNodeId === item.id;
+      const isHover = hoveredNodeId === item.id;
+      const isUp = upstreamSet.has(item.id);
+      const isDown = downstreamSet.has(item.id);
+      const isProp = activePropagatingIds.has(item.id);
+      const focusActive = Boolean(selectedNodeId || hoveredNodeId);
+      const related = isSel || isHover || isUp || isDown;
+      const edgeRelated = selectedEdgeObj && (selectedEdgeObj.from === item.id || selectedEdgeObj.to === item.id);
+      const matchesQuery = !q || (item.label + ' ' + item.detail).toLowerCase().includes(q);
+      const matchesKind = kindFilter === 'all' || item.kind === kindFilter;
+      const dimmed = (focusActive && !related) || (!!selectedEdgeObj && !edgeRelated) || !matchesQuery || !matchesKind;
+
+      return {
+        id: item.id,
+        type: 'decisionNode' as const,
+        position: { x: item.x ?? 100, y: item.y ?? 100 },
+        data: {
+          item,
+          selected: isSel,
+          upstream: isUp,
+          downstream: isDown,
+          propagating: isProp,
+          dimmed,
+          deltaLabel: isProp && propagationDeltas[item.id] ? formatDelta(propagationDeltas[item.id]) : null,
+        },
+        // RF's own selection state stays unused — visual selection is data-driven
+        selected: false,
+        draggable: true,
+        selectable: false,
+      };
+    });
+  }, [items, selectedNodeId, hoveredNodeId, upstreamSet, downstreamSet, activePropagatingIds, propagationDeltas, selectedEdgeObj, q, kindFilter]);
+
+  const rfEdges: AppEdge[] = useMemo(() => {
+    return edges
+      .filter((e) => {
+        const fromExists = items.some((i) => i.id === e.from);
+        const toExists = items.some((i) => i.id === e.to);
+        return fromExists && toExists;
+      })
+      .map((edge) => {
+        const isSel = selectedEdgeId === edge.id;
+        const isHover = hoveredEdgeId === edge.id;
+        const connectedToFocus = selectedNodeId === edge.from || selectedNodeId === edge.to || hoveredNodeId === edge.from || hoveredNodeId === edge.to;
+        const isPathActive = activeEdgesSet.has(edge.id);
+        const isProp = activePropagatingIds.has(edge.from) || activePropagatingIds.has(edge.to);
+        const focusActive = Boolean(selectedNodeId || hoveredNodeId);
+        const dimmed = focusActive && !isPathActive && !connectedToFocus && !isSel && !isHover;
+
+        let strokeColor = '#2b313a';
+        let strokeWidth = 1.5;
+        let animated = false;
+        if (isSel || isHover) {
+          strokeColor = '#3fbfb0';
+          strokeWidth = 2.5;
+        } else if (isPathActive || connectedToFocus) {
+          strokeColor = '#34d399';
+          strokeWidth = 2;
+        } else if (isProp) {
+          strokeColor = '#f59e0b';
+          strokeWidth = 2.5;
+        }
+        animated = showFlowAnimation && (isPathActive || isSel || isProp);
+
+        return {
+          id: edge.id,
+          source: edge.from,
+          target: edge.to,
+          type: 'flowEdge' as const,
+          data: {
+            strokeColor,
+            strokeWidth,
+            dashed: edge.relationshipType === 'constrains',
+            animated,
+            dimmed,
+          },
+          markerEnd: { type: MarkerType.ArrowClosed, color: isSel || isHover ? '#3fbfb0' : isPathActive || connectedToFocus ? '#34d399' : '#3a414b', width: 14, height: 14 },
+          selectable: false,
+          clickable: true,
+        };
+      });
+  }, [edges, items, selectedEdgeId, hoveredEdgeId, selectedNodeId, hoveredNodeId, activeEdgesSet, activePropagatingIds, showFlowAnimation]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>(rfNodes);
+  const [, setEdges] = useEdgesState<AppEdge>(rfEdges);
+
+  useEffect(() => setNodes(rfNodes), [rfNodes, setNodes]);
+  useEffect(() => setEdges(rfEdges), [rfEdges, setEdges]);
+
+  // Record the layout we were first given so "reset layout" can restore it.
+  useEffect(() => {
+    if (initialLayout.current.size === 0) {
+      initialLayout.current = new Map(items.map((i) => [i.id, { x: i.x ?? 100, y: i.y ?? 100 }]));
+    }
+  }, [items]);
+
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => zoomIn({ duration: 200 }),
+    zoomOut: () => zoomOut({ duration: 200 }),
+    fitView: () => fitView({ padding: 0.18, duration: 400 }),
+    resetLayout: () => {
+      onSelectNode(null);
+      onSelectEdge(null);
+      initialLayout.current.forEach((pos, id) => onNodeMove(id, pos.x, pos.y));
+      window.setTimeout(() => fitView({ padding: 0.18, duration: 400 }), 60);
+    },
+  }));
+
   return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      onWheel={handleWheel}
-      onClick={handleCanvasClick}
-      className={cn(
-        'relative h-full w-full overflow-hidden select-none bg-[#090b0e] cursor-grab active:cursor-grabbing',
-        isPanning && 'cursor-grabbing'
-      )}
-      style={{
-        backgroundImage: `radial-gradient(circle, #22272f 1.2px, transparent 1.2px)`,
-        backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
-        backgroundPosition: `${pan.x}px ${pan.y}px`
+    <ReactFlow
+      nodes={nodes}
+      edges={rfEdges}
+      onNodesChange={onNodesChange}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      defaultViewport={{ x: 60, y: 40, zoom: 0.85 }}
+      minZoom={0.3}
+      maxZoom={2}
+      fitView
+      fitViewOptions={{ padding: 0.18 }}
+      nodesConnectable={false}
+      elementsSelectable={false}
+      deleteKeyCode={null}
+      multiSelectionKeyCode={null}
+      proOptions={{ hideAttribution: true }}
+      onNodeClick={(_, node) => {
+        onSelectNode(node.id);
+        onSelectEdge(null);
       }}
+      onNodeDragStart={(_, node) => onSelectNode(node.id)}
+      onNodeDragStop={(_, node) => onNodeMove(node.id, Math.round(node.position.x), Math.round(node.position.y))}
+      onNodeMouseEnter={(_, node) => onHoverNode(node.id)}
+      onNodeMouseLeave={() => onHoverNode(null)}
+      onEdgeClick={(_, edge) => {
+        onSelectEdge(edge.id);
+        onSelectNode(null);
+      }}
+      onEdgeMouseEnter={(_, edge) => onHoverEdge(edge.id)}
+      onEdgeMouseLeave={() => onHoverEdge(null)}
+      onPaneClick={() => {
+        onSelectNode(null);
+        onSelectEdge(null);
+      }}
+      onMove={(_, viewport) => onViewportChange?.(viewport.zoom)}
+      className="decisionos-flow"
     >
-      {/* Container SVG and HTML nodes transformed by Pan/Zoom */}
-      <div
-        className="absolute left-0 top-0 h-full w-full origin-0 pointer-events-none"
-        style={{
-          transform: `translate3d(${pan.x}px, ${pan.y}px, 0px) scale(${zoom})`
-        }}
-      >
-        {/* SVG layer for edges and connection arrows */}
-        <svg className="absolute left-0 top-0 h-[5000px] w-[5000px] overflow-visible pointer-events-none">
-          <defs>
-            <marker
-              id="arrow-default"
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="6"
-              markerHeight="6"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#3a414b" />
-            </marker>
-            <marker
-              id="arrow-active"
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#3fbfb0" />
-            </marker>
-            <marker
-              id="arrow-downstream"
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#34d399" />
-            </marker>
-          </defs>
+      <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#22272f" />
+    </ReactFlow>
+  );
+}
 
-          <g className="pointer-events-auto">
-            {edges.map((edge) => {
-              const pathD = calculateEdgePath(edge.from, edge.to);
-              if (!pathD) return null;
-
-              const isFocus = selectedNodeId || hoveredNodeId;
-              const isSelected = selectedEdgeId === edge.id;
-              const isHovered = hoveredEdgeId === edge.id;
-              const isEdgeConnectedToFocus =
-                selectedNodeId === edge.from ||
-                selectedNodeId === edge.to ||
-                hoveredNodeId === edge.from ||
-                hoveredNodeId === edge.to;
-              const isPathActive = activeEdgesSet.has(edge.id);
-              const isPropagating = activePropagatingIds.has(edge.from) || activePropagatingIds.has(edge.to);
-
-              const isDimmed =
-                isFocus && !isPathActive && !isEdgeConnectedToFocus && !isSelected && !isHovered;
-
-              let strokeColor = '#2b313a';
-              let strokeWidth = 1.5;
-              let marker = 'url(#arrow-default)';
-
-              if (isSelected || isHovered) {
-                strokeColor = '#3fbfb0';
-                strokeWidth = 2.5;
-                marker = 'url(#arrow-active)';
-              } else if (isPathActive || isEdgeConnectedToFocus) {
-                strokeColor = '#34d399';
-                strokeWidth = 2;
-                marker = 'url(#arrow-downstream)';
-              } else if (isPropagating) {
-                strokeColor = '#f59e0b';
-                strokeWidth = 2.5;
-              }
-
-              return (
-                <g key={edge.id} className="group">
-                  {/* Invisible wide hit target for easy edge clicking */}
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke="transparent"
-                    strokeWidth={16}
-                    className="cursor-pointer pointer-events-auto"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectEdge(edge.id);
-                      onSelectNode(null);
-                    }}
-                    onMouseEnter={() => onHoverEdge(edge.id)}
-                    onMouseLeave={() => onHoverEdge(null)}
-                  />
-
-                  {/* Main visible connection path */}
-                  <path
-                    d={pathD}
-                    fill="none"
-                    stroke={strokeColor}
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={edge.relationshipType === 'constrains' ? '4 4' : undefined}
-                    markerEnd={marker}
-                    className={cn(
-                      'transition-[stroke,stroke-width,opacity] duration-200 ease-out pointer-events-none',
-                      isDimmed && 'opacity-20'
-                    )}
-                  />
-
-                  {/* Flow animation dots along path */}
-                  {showFlowAnimation && (isPathActive || isSelected || isPropagating) && !isDimmed && (
-                    <circle r={3} fill={isPropagating ? '#f59e0b' : strokeColor}>
-                      <animateMotion path={pathD} dur="2s" repeatCount="indefinite" />
-                    </circle>
-                  )}
-                </g>
-              );
-            })}
-          </g>
-        </svg>
-
-        {/* HTML Nodes layer */}
-        <div className="absolute left-0 top-0 pointer-events-auto">
-          {items.map((node) => {
-            const meta = KIND_META[node.kind] ?? KIND_META.variable;
-            const Icon = meta.icon;
-            const pos = positions[node.id] || { x: 100, y: 100 };
-
-            const isSelected = selectedNodeId === node.id;
-            const isHovered = hoveredNodeId === node.id;
-            const isUpstream = upstreamSet.has(node.id);
-            const isDownstream = downstreamSet.has(node.id);
-            const isPropagating = activePropagatingIds.has(node.id);
-
-            const isFocusActive = Boolean(selectedNodeId || hoveredNodeId);
-            const isRelated = isSelected || isHovered || isUpstream || isDownstream;
-            const isEdgeRelated =
-              selectedEdgeObj && (selectedEdgeObj.from === node.id || selectedEdgeObj.to === node.id);
-
-            const matchesQuery = !q || (node.label + ' ' + node.detail).toLowerCase().includes(q);
-            const matchesKind = kindFilter === 'all' || node.kind === kindFilter;
-
-            const isDimmed = (isFocusActive && !isRelated) || (selectedEdgeObj && !isEdgeRelated) || !matchesQuery || !matchesKind;
-
-            const isUnknown = node.kind === 'unknown' || node.origin === 'unknown';
-
-            // Distinct node highlight borders
-            let borderClass = meta.fill;
-            if (isSelected) {
-              borderClass = 'border-accent bg-[#102422] shadow-[0_0_20px_rgba(63,191,176,0.25)] ring-1 ring-accent';
-            } else if (isUpstream) {
-              borderClass = 'border-[#3b82f6] bg-[#0f172a] shadow-[0_0_12px_rgba(59,130,246,0.15)]';
-            } else if (isDownstream) {
-              borderClass = 'border-[#34d399] bg-[#064e3b]/30 shadow-[0_0_12px_rgba(52,211,153,0.15)]';
-            } else if (isHovered) {
-              borderClass = 'border-line-strong bg-[#14171c]';
-            } else if (isUnknown) {
-              borderClass = 'border-dashed border-[#475569] bg-[#0f1217]';
-            }
-
-            return (
-              <motion.div
-                key={node.id}
-                onMouseDown={(e) => handleNodeDragStart(e, node)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectNode(node.id);
-                  onSelectEdge(null);
-                }}
-                onMouseEnter={() => onHoverNode(node.id)}
-                onMouseLeave={() => onHoverNode(null)}
-                style={{
-                  transform: `translate3d(${pos.x}px, ${pos.y}px, 0px)`,
-                  width: DEFAULT_NODE_WIDTH
-                }}
-                className={cn(
-                  'graph-node absolute top-0 left-0 cursor-grab active:cursor-grabbing rounded-xl border p-3.5 shadow-lg backdrop-blur-sm transition-all duration-150 ease-out',
-                  borderClass,
-                  isDimmed ? 'opacity-25 filter grayscale-[30%]' : 'opacity-100',
-                  isPropagating && 'animate-pulse ring-2 ring-amber-400'
-                )}
-              >
-                {/* Header row: Kind badge + Title + Source indicator */}
-                <div className="flex items-center justify-between gap-2 border-b border-line/60 pb-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded border text-2xs', meta.fill)}>
-                      <Icon className={cn('h-3 w-3', meta.color)} />
-                    </span>
-                    <span className="font-mono text-2xs uppercase tracking-wider text-fg-muted truncate">
-                      {node.kind}
-                    </span>
-                  </div>
-
-                  {/* Value tag / badge */}
-                  {node.value !== undefined ? (
-                    <span className="font-mono text-2xs font-semibold px-2 py-0.5 rounded bg-surface border border-line text-accent truncate">
-                      {String(node.value)}
-                    </span>
-                  ) : node.range ? (
-                    <span className="font-mono text-2xs font-semibold px-2 py-0.5 rounded bg-surface border border-line text-fg truncate">
-                      {node.range.value} {node.range.unit}
-                    </span>
-                  ) : isUnknown ? (
-                    <span className="font-mono text-2xs px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center gap-1">
-                      <HelpCircleIcon className="h-2.5 w-2.5" /> Unknown
-                    </span>
-                  ) : null}
-                </div>
-
-                {/* Node Title */}
-                <h3 className="mt-2 text-[13.5px] font-semibold text-fg leading-snug line-clamp-2">
-                  {node.label}
-                </h3>
-
-                {/* Short description */}
-                <p className="mt-1 text-2xs text-fg-muted line-clamp-2 leading-relaxed">
-                  {node.detail}
-                </p>
-
-                {/* Footer metadata: Upstream/Downstream indicators */}
-                <div className="mt-2.5 flex items-center justify-between pt-1.5 border-t border-line/40 text-2xs font-mono text-fg-muted">
-                  <span className="capitalize text-fg-secondary">
-                    {node.origin === 'user' ? 'User specified' : node.origin === 'inferred' ? 'AI inferred' : 'Unknown source'}
-                  </span>
-                  {node.affects && node.affects.length > 0 && (
-                    <span className="flex items-center gap-1 text-accent">
-                      <ArrowRightIcon className="h-2.5 w-2.5" /> {node.affects.length}
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Floating empty search state if query matches nothing */}
-      {q && !items.some((i) => (i.label + ' ' + i.detail).toLowerCase().includes(q)) && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 rounded-lg border border-line bg-surface/90 px-4 py-2 backdrop-blur-md font-mono text-2xs text-fg-muted shadow-xl">
-          No graph nodes matching "{searchQuery}"
+function CanvasGraphWithProvider(props: CanvasGraphProps, ref: React.Ref<CanvasGraphHandle>) {
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-[#090b0e]">
+      <ReactFlowProvider>
+        <GraphInner {...props} ref={ref} />
+      </ReactFlowProvider>
+      {props.searchQuery?.trim() && !props.items.some((i) => (i.label + ' ' + i.detail).toLowerCase().includes(props.searchQuery!.trim().toLowerCase())) && (
+        <div className="pointer-events-none absolute left-1/2 top-6 z-10 -translate-x-1/2 rounded-lg border border-line bg-surface/90 px-4 py-2 font-mono text-2xs text-fg-muted shadow-xl backdrop-blur-md">
+          No graph nodes matching &quot;{props.searchQuery}&quot;
         </div>
       )}
     </div>
   );
 }
+
+/** Tiny stable-wrapper shims so node/edge components keep identity across renders. */
+function memoNode<T extends React.ComponentType<any>>(Component: T): T {
+  return React.memo(Component) as unknown as T;
+}
+function memoEdge<T extends React.ComponentType<any>>(Component: T): T {
+  return React.memo(Component) as unknown as T;
+}
+
+export const CanvasGraph = React.forwardRef<CanvasGraphHandle, CanvasGraphProps>(CanvasGraphWithProvider);
+
+export default CanvasGraph;

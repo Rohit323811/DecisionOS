@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRightIcon } from 'lucide-react';
+import { ArrowRightIcon, HistoryIcon } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { TopBar } from '../components/layout/TopBar';
 import { GraphPreview } from '../components/graph/GraphPreview';
@@ -31,12 +31,20 @@ const NOT_DOING = [
 
 export function Landing() {
   const navigate = useNavigate();
-  const { setPrompt } = useDecision();
+  const { setPrompt, model, isDemoModel } = useDecision();
 
   const tryExample = () => {
     setPrompt(contractorDecision.prompt);
     navigate('/new?example=contractor');
   };
+
+  const lastModel = model
+    ? {
+        title: model.title,
+        nodes: model.items.length,
+        demo: isDemoModel,
+      }
+    : null;
 
   return (
     <div className="min-h-full w-full bg-bg">
@@ -80,6 +88,16 @@ export function Landing() {
               <Button size="lg" variant="secondary" onClick={tryExample}>
                 Try an example
               </Button>
+              {lastModel && (
+                <button
+                  onClick={() => navigate('/model')}
+                  className="inline-flex items-center gap-2 rounded-md border border-accent/40 bg-[#102220] px-3.5 py-2.5 font-mono text-2xs text-accent transition-colors hover:border-accent hover:bg-[#122826]">
+                  
+                  <HistoryIcon className="h-3.5 w-3.5" />
+                  Resume “{lastModel.title}”
+                  <span className="text-fg-muted">· {lastModel.nodes} nodes{lastModel.demo ? ' · demo' : ''}</span>
+                </button>
+              )}
             </div>
           </motion.div>
 
