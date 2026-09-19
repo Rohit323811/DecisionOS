@@ -3,8 +3,10 @@ import {
   ArrowRightIcon,
   CalendarIcon,
   ChevronRightIcon,
+  CircleDashedIcon,
   HelpCircleIcon,
   InfoIcon,
+  PercentIcon,
   SlidersIcon,
   Trash2Icon,
   XIcon
@@ -112,6 +114,171 @@ export function RightInspector({
   );
 }
 
+/** Per-type value controls, resolved from the variable type — never one-size-fits-all. */
+function ValueControl({
+  node,
+  onUpdateItem
+}: {
+  node: ModelItem;
+  onUpdateItem: (id: string, patch: Partial<ModelItem>) => void;
+}) {
+  const controlType: VariableControlType = node.controlType ?? (node.range ? 'slider' : 'numeric');
+
+  if (controlType === 'slider' && node.range) {
+    return (
+      <div className="space-y-2 pt-1">
+        <div className="flex justify-between font-mono text-2xs">
+          <span className="text-fg-muted">Current Value</span>
+          <span className="text-accent font-semibold">
+            {node.range.value} {node.range.unit}
+          </span>
+        </div>
+        <input
+          type="range"
+          min={node.range.min}
+          max={node.range.max}
+          step={node.range.step ?? 1}
+          value={node.range.value}
+          onChange={(e) => onUpdateItem(node.id, { range: { ...node.range!, value: Number(e.target.value) } })}
+          className="w-full accent-accent bg-line h-1.5 rounded-lg cursor-pointer"
+        />
+        <div className="flex justify-between font-mono text-2xs text-fg-muted">
+          <span>{node.range.min}</span>
+          <span>{node.range.max}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (controlType === 'currency') {
+    return (
+      <div className="space-y-1.5 pt-1">
+        <label className="flex items-center gap-1 font-mono text-2xs text-fg-muted">
+          <PercentIcon className="h-3 w-3 rotate-90" /> Amount (USD)
+        </label>
+        <div className="relative">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-2xs text-fg-muted">$</span>
+          <input
+            type="number"
+            value={typeof node.value === 'number' ? node.value : Number(node.value) || 0}
+            onChange={(e) => onUpdateItem(node.id, { value: Number(e.target.value) })}
+            className="w-full rounded border border-line bg-surface px-2.5 py-1.5 pl-6 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (controlType === 'percentage') {
+    return (
+      <div className="space-y-2 pt-1">
+        <div className="flex justify-between font-mono text-2xs">
+          <span className="text-fg-muted">Percentage</span>
+          <span className="text-accent font-semibold">{Number(node.value) || 0}%</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Number(node.value) || 0}
+          onChange={(e) => onUpdateItem(node.id, { value: Number(e.target.value) })}
+          className="w-full accent-accent bg-line h-1.5 rounded-lg cursor-pointer"
+        />
+      </div>
+    );
+  }
+
+  if (controlType === 'toggle') {
+    return (
+      <div className="flex items-center justify-between pt-1">
+        <span className="font-mono text-2xs text-fg-secondary">State Enabled</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={node.value === true}
+          onClick={() => onUpdateItem(node.id, { value: !node.value })}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+            node.value ? 'bg-accent' : 'bg-line'
+          )}
+        >
+          <span
+            className={cn(
+              'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+              node.value ? 'translate-x-4' : 'translate-x-0'
+            )}
+          />
+        </button>
+      </div>
+    );
+  }
+
+  if (controlType === 'dropdown') {
+    return (
+      <div className="space-y-1 pt-1">
+        <label className="font-mono text-2xs text-fg-muted">Option Select</label>
+        <select
+          value={String(node.value ?? '')}
+          onChange={(e) => onUpdateItem(node.id, { value: e.target.value })}
+          className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
+        >
+          {(node.selectOptions && node.selectOptions.length > 0
+            ? node.selectOptions
+            : ['High', 'Medium', 'Low']
+          ).map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  if (controlType === 'date') {
+    return (
+      <div className="space-y-1 pt-1">
+        <label className="flex items-center gap-1 font-mono text-2xs text-fg-muted">
+          <CalendarIcon className="h-3 w-3" /> Target Date
+        </label>
+        <input
+          type="date"
+          value={String(node.value ?? '')}
+          onChange={(e) => onUpdateItem(node.id, { value: e.target.value })}
+          className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
+        />
+      </div>
+    );
+  }
+
+  if (controlType === 'numeric') {
+    return (
+      <div className="space-y-1 pt-1">
+        <label className="font-mono text-2xs text-fg-muted">Value{node.range?.unit ? ` (${node.range.unit})` : ''}</label>
+        <input
+          type="number"
+          value={typeof node.value === 'number' ? node.value : Number(node.value) || 0}
+          onChange={(e) => onUpdateItem(node.id, { value: Number(e.target.value) })}
+          className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
+        />
+      </div>
+    );
+  }
+
+  // text
+  return (
+    <div className="space-y-1 pt-1">
+      <label className="font-mono text-2xs text-fg-muted">Value</label>
+      <input
+        type="text"
+        value={String(node.value ?? '')}
+        onChange={(e) => onUpdateItem(node.id, { value: e.target.value })}
+        className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
+      />
+    </div>
+  );
+}
+
 /** Component for editing Node Variables & Controls */
 function NodeInspectorView({
   node,
@@ -131,10 +298,8 @@ function NodeInspectorView({
   const meta = KIND_META[node.kind] || KIND_META.variable;
   const Icon = meta.icon;
   const isUnknown = node.kind === 'unknown' || node.origin === 'unknown';
-
-  const [controlType, setControlType] = useState<VariableControlType>(
-    node.controlType || (node.range ? 'slider' : typeof node.value === 'boolean' ? 'toggle' : 'numeric')
-  );
+  const [controlOverride, setControlOverride] = useState<VariableControlType | null>(null);
+  const controlType = controlOverride ?? node.controlType ?? (node.range ? 'slider' : 'numeric');
 
   return (
     <div className="space-y-5">
@@ -160,6 +325,15 @@ function NodeInspectorView({
           rows={2}
           className="w-full bg-transparent text-2xs text-fg-muted resize-none focus:outline-none focus:text-fg transition-colors"
         />
+
+        {node.confidence && (
+          <div className="flex items-center gap-1.5 border-t border-line/60 pt-1.5">
+            <span className="font-mono text-2xs text-fg-muted">confidence:</span>
+            <Badge tone={node.confidence === 'low' ? 'warning' : node.confidence === 'high' ? 'positive' : 'neutral'} mono>
+              {node.confidence}
+            </Badge>
+          </div>
+        )}
       </div>
 
       {/* CONTROLS SECTION */}
@@ -174,120 +348,30 @@ function NodeInspectorView({
             value={controlType}
             onChange={(e) => {
               const ct = e.target.value as VariableControlType;
-              setControlType(ct);
+              setControlOverride(ct);
               onUpdateItem(node.id, { controlType: ct });
             }}
             className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-2xs text-fg-secondary focus:outline-none focus:border-accent"
           >
-            <option value="numeric">Numeric Input</option>
             <option value="slider">Range Slider</option>
+            <option value="numeric">Numeric Input</option>
+            <option value="currency">Currency</option>
+            <option value="percentage">Percentage</option>
             <option value="toggle">Toggle Switch</option>
             <option value="dropdown">Dropdown</option>
-            <option value="percentage">Percentage</option>
             <option value="date">Date Picker</option>
+            <option value="text">Text</option>
           </select>
         </div>
 
-        {/* Dynamic Control Renderer */}
-        {controlType === 'slider' || node.range ? (
-          <div className="space-y-2 pt-1">
-            <div className="flex justify-between font-mono text-2xs">
-              <span className="text-fg-muted">Current Value</span>
-              <span className="text-accent font-semibold">
-                {node.range ? node.range.value : String(node.value || 0)} {node.range?.unit || ''}
-              </span>
-            </div>
-            <input
-              type="range"
-              min={node.range?.min ?? 0}
-              max={node.range?.max ?? 100}
-              step={node.range?.step ?? 1}
-              value={node.range ? node.range.value : Number(node.value || 0)}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                if (node.range) {
-                  onUpdateItem(node.id, { range: { ...node.range, value: val } });
-                } else {
-                  onUpdateItem(node.id, { value: val });
-                }
-              }}
-              className="w-full accent-accent bg-line h-1.5 rounded-lg cursor-pointer"
-            />
-            <div className="flex justify-between font-mono text-2xs text-fg-muted">
-              <span>{node.range?.min ?? 0}</span>
-              <span>{node.range?.max ?? 100}</span>
-            </div>
-          </div>
-        ) : controlType === 'numeric' ? (
-          <div className="space-y-1 pt-1">
-            <label className="font-mono text-2xs text-fg-muted">Value</label>
-            <input
-              type="number"
-              value={Number(node.value) || 0}
-              onChange={(e) => onUpdateItem(node.id, { value: Number(e.target.value) })}
-              className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
-            />
-          </div>
-        ) : controlType === 'toggle' ? (
-          <div className="flex items-center justify-between pt-1">
-            <span className="font-mono text-2xs text-fg-secondary">State Enabled</span>
-            <button
-              type="button"
-              onClick={() => onUpdateItem(node.id, { value: !node.value })}
-              className={cn(
-                'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                node.value ? 'bg-accent' : 'bg-line'
-              )}
-            >
-              <span
-                className={cn(
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  node.value ? 'translate-x-4' : 'translate-x-0'
-                )}
-              />
-            </button>
-          </div>
-        ) : controlType === 'percentage' ? (
-          <div className="space-y-2 pt-1">
-            <div className="flex justify-between font-mono text-2xs">
-              <span className="text-fg-muted">Percentage</span>
-              <span className="text-accent font-semibold">{String(node.value || 50)}%</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={Number(node.value) || 50}
-              onChange={(e) => onUpdateItem(node.id, { value: Number(e.target.value) })}
-              className="w-full accent-accent bg-line h-1.5 rounded-lg cursor-pointer"
-            />
-          </div>
-        ) : controlType === 'date' ? (
-          <div className="space-y-1 pt-1">
-            <label className="font-mono text-2xs text-fg-muted flex items-center gap-1">
-              <CalendarIcon className="h-3 w-3" /> Target Date
-            </label>
-            <input
-              type="date"
-              value={String(node.value || '')}
-              onChange={(e) => onUpdateItem(node.id, { value: e.target.value })}
-              className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
-            />
-          </div>
-        ) : (
-          <div className="space-y-1 pt-1">
-            <label className="font-mono text-2xs text-fg-muted">Option Select</label>
-            <select
-              value={String(node.value || '')}
-              onChange={(e) => onUpdateItem(node.id, { value: e.target.value })}
-              className="w-full rounded border border-line bg-surface px-2.5 py-1.5 font-mono text-2xs text-fg focus:border-accent focus:outline-none"
-            >
-              {(node.selectOptions || ['High priority', 'Medium priority', 'Low priority']).map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+        <ValueControl node={node} onUpdateItem={onUpdateItem} />
+
+        {node.computedFormula && (
+          <div className="border-t border-line pt-2.5">
+            <span className="font-mono text-2xs text-fg-muted">derived from:</span>
+            <p className="mt-1 rounded border border-[#4c3a70]/40 bg-[#1a162b]/60 px-2 py-1.5 font-mono text-2xs text-[#a78bfa]">
+              {node.computedFormula}
+            </p>
           </div>
         )}
       </div>
@@ -299,23 +383,41 @@ function NodeInspectorView({
             <HelpCircleIcon className="h-3.5 w-3.5" /> Unknown Resolution
           </div>
           <p className="text-2xs text-fg-muted leading-relaxed">
-            This variable has unconfirmed information. Select how you want the model to handle it:
+            This node holds unconfirmed information. Resolve it yourself — the model never invents a value for you.
           </p>
 
           <div className="grid grid-cols-2 gap-1.5 pt-1">
             <button
-              onClick={() => onUpdateItem(node.id, { origin: 'user', kind: 'input' })}
+              onClick={() =>
+                onUpdateItem(node.id, {
+                  origin: 'user',
+                  kind: node.kind === 'unknown' ? 'input' : node.kind,
+                  controlType: 'numeric',
+                  variableType: 'number',
+                })
+              }
               className="rounded border border-amber-500/30 bg-surface px-2 py-1.5 font-mono text-2xs text-amber-300 hover:bg-amber-500/20"
             >
               Provide Value
             </button>
             <button
-              onClick={() => onUpdateItem(node.id, { confidence: 'medium' })}
+              onClick={() =>
+                onUpdateItem(node.id, {
+                  origin: 'user',
+                  kind: node.kind === 'unknown' ? 'variable' : node.kind,
+                  controlType: 'slider',
+                  variableType: 'number',
+                  range: node.range ?? { min: 0, max: 100, value: 50, unit: '' },
+                })
+              }
               className="rounded border border-amber-500/30 bg-surface px-2 py-1.5 font-mono text-2xs text-amber-300 hover:bg-amber-500/20"
             >
               Set Range
             </button>
           </div>
+          <p className="flex items-center gap-1 font-mono text-2xs text-fg-muted">
+            <CircleDashedIcon className="h-3 w-3" /> stays dormant in propagation until resolved
+          </p>
         </div>
       )}
 

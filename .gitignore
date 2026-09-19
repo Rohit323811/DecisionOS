@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment — never commit API keys
+.env
+.env.local
+.env.*.local
+
+# Engine test scratch bundles
+engine-test-bundle.mjs

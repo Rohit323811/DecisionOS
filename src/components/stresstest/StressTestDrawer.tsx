@@ -8,6 +8,7 @@ import {
   XIcon
 } from 'lucide-react';
 import { ModelEdge, ModelItem } from '../../types/decision';
+import { formatDelta } from '../../utils/decisionEngine';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../utils/cn';
 
@@ -15,6 +16,8 @@ interface StressTestDrawerProps {
   open: boolean;
   items: ModelItem[];
   edges: ModelEdge[];
+  /** Live propagation deltas from the context — drives the impact cards. */
+  propagationDeltas?: Record<string, number>;
   onClose: () => void;
   onApplyShock: (id: string, newVal: number | boolean) => void;
 }
@@ -22,10 +25,12 @@ interface StressTestDrawerProps {
 export function StressTestDrawer({
   open,
   items,
+  propagationDeltas = {},
   onClose,
   onApplyShock
 }: StressTestDrawerProps) {
-  if (!open) return null;
+  // Hooks must run unconditionally — no early return above this line.
+  const [shocks, setShocks] = useState<Record<string, number>>({});
 
   // Filter assumptions, constraints, and numerical inputs dynamically from model
   const keyInputs = useMemo(() => {
@@ -33,9 +38,6 @@ export function StressTestDrawer({
       (i) => i.kind === 'assumption' || i.kind === 'constraint' || i.kind === 'variable' || i.kind === 'input'
     );
   }, [items]);
-
-  // Track shock modifiers (percentages or delta offsets)
-  const [shocks, setShocks] = useState<Record<string, number>>({});
 
   const handleShockChange = (id: string, deltaPercent: number) => {
     setShocks((prev) => ({ ...prev, [id]: deltaPercent }));
@@ -62,6 +64,8 @@ export function StressTestDrawer({
     return items.filter((i) => i.kind === 'constraint');
   }, [items]);
 
+  if (!open) return null;
+
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[440px] flex-col border-l border-line bg-surface/98 shadow-2xl backdrop-blur-xl select-none">
       {/* Header */}
@@ -85,7 +89,7 @@ export function StressTestDrawer({
             "What happens if a key assumption changes?"
           </h3>
           <p className="text-2xs text-fg-muted leading-relaxed">
-            Simulate dynamic market shocks, load spikes, or constraint breaches. The model recalculates downstream impacts immediately.
+            Simulate dynamic market shocks, load spikes, or constraint breaches. The model recalculates downstream impacts immediately — locally, with no AI calls.
           </p>
         </div>
 
@@ -108,6 +112,7 @@ export function StressTestDrawer({
           <div className="space-y-3">
             {keyInputs.map((item) => {
               const currentShock = shocks[item.id] || 0;
+              const editable = Boolean(item.range);
               return (
                 <div key={item.id} className="rounded-xl border border-line bg-bg p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between">
@@ -121,24 +126,34 @@ export function StressTestDrawer({
 
                   <p className="text-2xs text-fg-muted line-clamp-1">{item.detail}</p>
 
-                  <div className="space-y-1 pt-1">
-                    <div className="flex justify-between font-mono text-2xs">
-                      <span className="text-fg-muted">Simulated Shock</span>
-                      <span className={cn('font-semibold', currentShock > 0 ? 'text-red-400' : currentShock < 0 ? 'text-emerald-400' : 'text-fg')}>
-                        {currentShock > 0 ? `+${currentShock}%` : `${currentShock}%`}
-                      </span>
-                    </div>
+                  {editable ? (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex justify-between font-mono text-2xs">
+                        <span className="text-fg-muted">Simulated Shock</span>
+                        <span className={cn('font-semibold', currentShock > 0 ? 'text-red-400' : currentShock < 0 ? 'text-emerald-400' : 'text-fg')}>
+                          {currentShock > 0 ? `+${currentShock}%` : `${currentShock}%`}
+                        </span>
+                      </div>
 
-                    <input
-                      type="range"
-                      min={-50}
-                      max={100}
-                      step={5}
-                      value={currentShock}
-                      onChange={(e) => handleShockChange(item.id, Number(e.target.value))}
-                      className="w-full accent-amber-400 bg-line h-1.5 rounded-lg cursor-pointer"
-                    />
-                  </div>
+                      <input
+                        type="range"
+                        min={-50}
+                        max={100}
+                        step={5}
+                        value={currentShock}
+                        onChange={(e) => handleShockChange(item.id, Number(e.target.value))}
+                        className="w-full accent-amber-400 bg-line h-1.5 rounded-lg cursor-pointer"
+                      />
+                      <div className="flex justify-between font-mono text-2xs text-fg-muted">
+                        <span>{item.range!.min} {item.range!.unit}</span>
+                        <span>{item.range!.max} {item.range!.unit}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="rounded-md border border-dashed border-line px-2.5 py-1.5 font-mono text-2xs text-fg-muted">
+                      qualitative — has no numeric value to shock
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -152,29 +167,34 @@ export function StressTestDrawer({
           </span>
 
           <div className="space-y-2">
-            {impactedGoals.map((goal) => (
-              <div
-                key={goal.id}
-                className={cn(
-                  'flex items-center justify-between rounded-lg border p-3 font-mono text-2xs',
-                  activeShockCount > 0
-                    ? 'border-amber-500/30 bg-amber-500/5 text-amber-300'
-                    : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
-                )}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  {activeShockCount > 0 ? (
-                    <AlertTriangleIcon className="h-4 w-4 shrink-0 text-amber-400" />
-                  ) : (
-                    <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-400" />
+            {impactedGoals.map((goal) => {
+              const delta = propagationDeltas[goal.id];
+              return (
+                <div
+                  key={goal.id}
+                  className={cn(
+                    'flex items-center justify-between rounded-lg border p-3 font-mono text-2xs',
+                    delta && Math.abs(delta) > 0.001
+                      ? 'border-amber-500/30 bg-amber-500/5 text-amber-300'
+                      : activeShockCount > 0
+                        ? 'border-amber-500/30 bg-amber-500/5 text-amber-300'
+                        : 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
                   )}
-                  <span className="truncate font-medium">{goal.label}</span>
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    {delta && Math.abs(delta) > 0.001 ? (
+                      <AlertTriangleIcon className="h-4 w-4 shrink-0 text-amber-400" />
+                    ) : (
+                      <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-400" />
+                    )}
+                    <span className="truncate font-medium">{goal.label}</span>
+                  </div>
+                  <span className="shrink-0 font-semibold">
+                    {delta && Math.abs(delta) > 0.001 ? formatDelta(delta) : activeShockCount > 0 ? 'At Risk' : 'Satisfied'}
+                  </span>
                 </div>
-                <span className="shrink-0 font-semibold">
-                  {activeShockCount > 0 ? 'At Risk' : 'Satisfied'}
-                </span>
-              </div>
-            ))}
+              );
+            })}
 
             {impactedConstraints.map((cnst) => (
               <div
@@ -203,3 +223,5 @@ export function StressTestDrawer({
     </div>
   );
 }
+
+export default StressTestDrawer;
